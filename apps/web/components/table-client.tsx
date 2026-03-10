@@ -277,6 +277,7 @@ export function TableClient({ tableId }: TableClientProps) {
               const occupied = Boolean(seat.player);
               const canTakeSeat = !occupied && !viewerSeat;
               const isActing = snapshot.actingSeatIndex === index;
+              const isDealer = snapshot.dealerSeatIndex === index;
               const isFolded = seat.folded;
               return (
                 <button
@@ -290,6 +291,7 @@ export function TableClient({ tableId }: TableClientProps) {
                     }
                   }}
                 >
+                  {isDealer && <span className="dealer-chip">D</span>}
                   {occupied ? (
                     <>
                       <span className="seat-name">{seat.player?.displayName}</span>
