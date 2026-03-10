@@ -70,6 +70,11 @@ export const wsClientMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("table.leave"),
     guestId: z.string().uuid()
+  }),
+  z.object({
+    type: z.literal("table.coachMode"),
+    guestId: z.string().uuid(),
+    enabled: z.boolean()
   })
 ]);
 
@@ -93,6 +98,11 @@ export const wsServerMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("table.handResult"),
     result: z.unknown()
+  }),
+  z.object({
+    type: z.literal("table.coachMode"),
+    guestId: z.string(),
+    enabled: z.boolean()
   }),
   z.object({
     type: z.literal("table.error"),

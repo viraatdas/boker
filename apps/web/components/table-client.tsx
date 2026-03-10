@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Card, LegalActions, TableSnapshot } from "@boker/shared";
 import { createGuest, fetchSnapshot, getWsBaseUrl, guestStorage, joinTable, leaveTable, rebuy, seatAtTable } from "../lib/api";
+import { playCardDeal, playCardFlip, playCheck, playChipBet, playClick, playFold, playAllIn, playWin, playNewHand, playYourTurn } from "../lib/sounds";
+import { generateAdvice, type CoachAdvice } from "../lib/coach";
 
 interface TableClientProps {
   tableId: string;
@@ -37,6 +40,21 @@ function GhostCard({ size }: { size: "board-size" | "hole-size" }) {
   return <div className={`playing-card ${size} ghost`} />;
 }
 
+function ChipStack({ amount, className }: { amount: number; className?: string }) {
+  if (amount <= 0) return null;
+  const chipCount = Math.min(4, Math.max(1, Math.ceil(amount / 50)));
+  return (
+    <div className={`chip-stack ${className ?? ""}`}>
+      <div className="chip-pile">
+        {Array.from({ length: chipCount }, (_, i) => (
+          <span key={i} className={`chip chip-color-${i % 4}`} style={{ marginTop: i > 0 ? -8 : 0 }} />
+        ))}
+      </div>
+      <span className="chip-label">{amount}</span>
+    </div>
+  );
+}
+
 export function TableClient({ tableId }: TableClientProps) {
   const [snapshot, setSnapshot] = useState<TableSnapshot | null>(null);
   const [guestId, setGuestId] = useState<string | null>(null);
@@ -48,8 +66,17 @@ export function TableClient({ tableId }: TableClientProps) {
   const [remainingMs, setRemainingMs] = useState<number>(0);
   const [betAmount, setBetAmount] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
+  const [hasLeft, setHasLeft] = useState(false);
+  const [coachEnabled, setCoachEnabled] = useState(false);
+  const [coachAdvice, setCoachAdvice] = useState<CoachAdvice | null>(null);
+  const [coachModeGuests, setCoachModeGuests] = useState<Set<string>>(new Set());
+  const [botPersonalities, setBotPersonalities] = useState<Record<string, string>>({});
   const socketRef = useRef<WebSocket | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+  const prevPhaseRef = useRef<string | null>(null);
+  const prevBoardLenRef = useRef<number>(0);
+  const prevActingSeatRef = useRef<number | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     const localGuest = guestStorage.read();
@@ -94,15 +121,26 @@ export function TableClient({ tableId }: TableClientProps) {
     socket.addEventListener("message", (event) => {
       try {
         const payload = JSON.parse(String(event.data)) as
-          | { type: "table.snapshot"; snapshot: TableSnapshot }
+          | { type: "table.snapshot"; snapshot: TableSnapshot; coachModeGuestIds?: string[]; botPersonalities?: Record<string, string> }
           | { type: "table.event"; event: FeedEvent }
           | { type: "table.timer"; remainingMs: number }
           | { type: "table.handResult"; result: HandResultMessage }
+          | { type: "table.coachMode"; guestId: string; enabled: boolean }
           | { type: "table.error"; message: string };
 
         switch (payload.type) {
           case "table.snapshot":
             setSnapshot(payload.snapshot);
+            if (payload.coachModeGuestIds) setCoachModeGuests(new Set(payload.coachModeGuestIds));
+            if (payload.botPersonalities) setBotPersonalities(payload.botPersonalities);
+            break;
+          case "table.coachMode":
+            setCoachModeGuests((prev) => {
+              const next = new Set(prev);
+              if (payload.enabled) next.add(payload.guestId);
+              else next.delete(payload.guestId);
+              return next;
+            });
             break;
           case "table.event":
             setFeed((current) => [payload.event, ...current].slice(0, 30));
@@ -111,6 +149,7 @@ export function TableClient({ tableId }: TableClientProps) {
             setRemainingMs(payload.remainingMs);
             break;
           case "table.handResult":
+            playWin();
             setHandBanner(
               payload.result.winners.map((w) => `${w.displayName} wins ${w.amount} (${w.handLabel})`).join(" · ")
             );
@@ -135,11 +174,64 @@ export function TableClient({ tableId }: TableClientProps) {
   );
   const legalActions = viewerSeat?.legalActions ?? null;
 
-  // Keep bet amount synced to available range
+  // Only reset bet amount when it first becomes viewer's turn
+  const isMyTurn = Boolean(viewerSeat && snapshot?.actingSeatIndex === viewerSeat.seatIndex);
+  const prevIsMyTurnRef = useRef(false);
   useEffect(() => {
     const range = legalActions?.betRange ?? legalActions?.raiseRange;
-    if (range) setBetAmount(range.min);
-  }, [legalActions?.betRange?.min, legalActions?.raiseRange?.min, legalActions?.betRange, legalActions?.raiseRange]);
+    if (isMyTurn && !prevIsMyTurnRef.current && range) {
+      setBetAmount(range.min);
+    }
+    prevIsMyTurnRef.current = isMyTurn;
+  }, [isMyTurn, legalActions?.betRange?.min, legalActions?.raiseRange?.min]);
+
+  // Sound effects based on game state changes
+  useEffect(() => {
+    if (!snapshot) return;
+    const prevPhase = prevPhaseRef.current;
+    const prevBoardLen = prevBoardLenRef.current;
+    const prevActing = prevActingSeatRef.current;
+
+    // New hand started
+    if (snapshot.phase === "preflop" && prevPhase !== "preflop") {
+      playNewHand();
+      // Stagger card deal sounds for hole cards
+      setTimeout(() => playCardDeal(), 200);
+      setTimeout(() => playCardDeal(), 400);
+    }
+
+    // Community cards revealed
+    if (snapshot.board.length > prevBoardLen && prevBoardLen >= 0) {
+      const newCards = snapshot.board.length - prevBoardLen;
+      for (let i = 0; i < newCards; i++) {
+        setTimeout(() => playCardFlip(), i * 120);
+      }
+    }
+
+    // It's now the viewer's turn
+    if (
+      snapshot.actingSeatIndex !== null &&
+      snapshot.actingSeatIndex !== prevActing &&
+      viewerSeat &&
+      snapshot.actingSeatIndex === viewerSeat.seatIndex
+    ) {
+      playYourTurn();
+    }
+
+    prevPhaseRef.current = snapshot.phase;
+    prevBoardLenRef.current = snapshot.board.length;
+    prevActingSeatRef.current = snapshot.actingSeatIndex;
+  }, [snapshot?.phase, snapshot?.board.length, snapshot?.actingSeatIndex, viewerSeat]);
+
+  // Coach advice generation
+  useEffect(() => {
+    if (!coachEnabled || !snapshot || !viewerSeat) {
+      setCoachAdvice(null);
+      return;
+    }
+    const advice = generateAdvice(snapshot, viewerSeat, legalActions);
+    setCoachAdvice(advice);
+  }, [coachEnabled, snapshot?.phase, snapshot?.actingSeatIndex, snapshot?.board.length, viewerSeat, legalActions, snapshot]);
 
   const actionTimeMs = snapshot?.config.actionTimeMs ?? 25000;
   const timerPct = actionTimeMs > 0 ? Math.max(0, Math.min(100, (remainingMs / actionTimeMs) * 100)) : 0;
@@ -171,6 +263,13 @@ export function TableClient({ tableId }: TableClientProps) {
 
   function sendAction(action: "fold" | "check" | "call" | "bet" | "raise", amount?: number) {
     if (!guestId || !socketRef.current) return;
+    switch (action) {
+      case "fold": playFold(); break;
+      case "check": playCheck(); break;
+      case "call": playChipBet(); break;
+      case "bet": playChipBet(); break;
+      case "raise": playChipBet(); break;
+    }
     socketRef.current.send(JSON.stringify({ type: "table.action", guestId, action, amount }));
   }
 
@@ -187,8 +286,10 @@ export function TableClient({ tableId }: TableClientProps) {
   async function handleLeave() {
     if (!guestId) return;
     try {
-      const next = await leaveTable(tableId, guestId);
-      setSnapshot(next);
+      await leaveTable(tableId, guestId);
+      socketRef.current?.close();
+      socketRef.current = null;
+      setHasLeft(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not leave");
     }
@@ -237,10 +338,29 @@ export function TableClient({ tableId }: TableClientProps) {
         </div>
         <div className="header-actions">
           <span className="pill">{snapshot.config.visibility}</span>
+          <button
+            type="button"
+            className={`coach-toggle ${coachEnabled ? "active" : ""}`}
+            onClick={() => {
+              const next = !coachEnabled;
+              setCoachEnabled(next);
+              if (guestId && socketRef.current) {
+                socketRef.current.send(JSON.stringify({ type: "table.coachMode", guestId, enabled: next }));
+              }
+            }}
+            title="Toggle poker coach"
+          >
+            <span className="coach-toggle-icon">💡</span>
+            <span>Coach</span>
+          </button>
           <button className="secondary-button" onClick={() => navigator.clipboard.writeText(window.location.href)}>
             Copy link
           </button>
-          <button className="secondary-button" onClick={() => void handleLeave()}>Leave</button>
+          {hasLeft ? (
+            <button className="primary-button" onClick={() => router.push("/")}>Home</button>
+          ) : (
+            <button className="secondary-button" onClick={() => void handleLeave()}>Leave</button>
+          )}
         </div>
       </section>
 
@@ -251,8 +371,26 @@ export function TableClient({ tableId }: TableClientProps) {
         {/* ── Felt + actions column ── */}
         <div className="felt-col">
           <div className="felt-shell">
+            {/* Committed chips — positioned between seats and center */}
+            {snapshot.seats.map((seat, index) =>
+              seat.committed > 0 ? (
+                <div key={`chips-${index}`} className={`committed-chips chips-pos-${index}`}>
+                  <ChipStack amount={seat.committed} />
+                </div>
+              ) : null
+            )}
+
             <div className="board-center">
-              <div className="pot-pill">Pot {snapshot.pot}</div>
+              <div className="pot-pill">
+                {snapshot.pot > 0 && (
+                  <span className="pot-chips">
+                    <span className="chip chip-color-0" />
+                    <span className="chip chip-color-1" style={{ marginLeft: -6 }} />
+                    <span className="chip chip-color-2" style={{ marginLeft: -6 }} />
+                  </span>
+                )}
+                <span>Pot {snapshot.pot}</span>
+              </div>
               <div className="board-row">
                 {snapshot.board.length === 0
                   ? Array.from({ length: 5 }, (_, i) => <GhostCard size="board-size" key={i} />)
@@ -278,7 +416,11 @@ export function TableClient({ tableId }: TableClientProps) {
               const canTakeSeat = !occupied && !viewerSeat;
               const isActing = snapshot.actingSeatIndex === index;
               const isDealer = snapshot.dealerSeatIndex === index;
+              const isSB = snapshot.smallBlindSeatIndex === index;
+              const isBB = snapshot.bigBlindSeatIndex === index;
               const isFolded = seat.folded;
+              const hasCoach = seat.player?.guestId ? coachModeGuests.has(seat.player.guestId) : false;
+              const botPersonality = seat.player?.guestId ? botPersonalities[seat.player.guestId] : null;
               return (
                 <button
                   type="button"
@@ -286,21 +428,29 @@ export function TableClient({ tableId }: TableClientProps) {
                   className={`seat seat-${index} ${occupied ? "occupied" : "open"} ${isActing ? "acting" : ""} ${isFolded ? "folded" : ""}`}
                   onClick={() => {
                     if (canTakeSeat) {
+                      playClick();
                       setSelectedSeat(seat.seatIndex);
                       void takeSeat(seat.seatIndex);
                     }
                   }}
                 >
                   {isDealer && <span className="dealer-chip">D</span>}
+                  {isSB && !isDealer && <span className="blind-chip sb-chip">SB</span>}
+                  {isBB && <span className="blind-chip bb-chip">BB</span>}
                   {occupied ? (
                     <>
                       <span className="seat-name">{seat.player?.displayName}</span>
                       <span className="seat-stack">{seat.player?.stack}</span>
                       <span className="seat-meta">
                         {seat.folded ? "fold" : seat.allIn ? "ALL IN" : seat.lastAction ?? ""}
-                        {seat.player?.isBot ? <span className="bot-badge">AI</span> : null}
+                        {seat.player?.isBot && botPersonality ? (
+                          <span className={`bot-badge personality-${botPersonality}`}>{botPersonality}</span>
+                        ) : seat.player?.isBot ? (
+                          <span className="bot-badge">AI</span>
+                        ) : null}
+                        {hasCoach && <span className="coach-badge">💡</span>}
                       </span>
-                      {seat.committed > 0 && <span className="seat-committed">{seat.committed}</span>}
+                      {/* committed shown as positioned chips outside seat */}
                       <div className="hole-row">
                         {seat.holeCards.length > 0
                           ? seat.holeCards.map((card) => (
@@ -332,6 +482,18 @@ export function TableClient({ tableId }: TableClientProps) {
               );
             })}
           </div>
+
+          {/* ── Coach speech bubble ── */}
+          {coachEnabled && coachAdvice && viewerSeat && (
+            <div className={`coach-bubble coach-${coachAdvice.type}`}>
+              <div className="coach-bubble-arrow" />
+              <span className="coach-bubble-icon">
+                {coachAdvice.type === "warning" ? "⚠️" : coachAdvice.type === "tip" ? "💡" : "ℹ️"}
+              </span>
+              <p className="coach-bubble-text">{coachAdvice.message}</p>
+              <button type="button" className="coach-dismiss" onClick={() => setCoachAdvice(null)}>×</button>
+            </div>
+          )}
 
           {/* ── Action bar below felt, next to your cards ── */}
           {viewerSeat && (
@@ -378,14 +540,10 @@ export function TableClient({ tableId }: TableClientProps) {
                     onChange={(e) => setBetAmount(Number(e.target.value))}
                   />
                   <div className="bet-presets">
-                    <button className="bet-preset-btn" onClick={() => setBetAmount(activeRange.min)}>Min</button>
-                    {snapshot.pot > 0 && (
-                      <>
-                        <button className="bet-preset-btn" onClick={() => setBetAmount(Math.min(activeRange.max, Math.max(activeRange.min, Math.floor(snapshot.pot * 0.5))))}>½ pot</button>
-                        <button className="bet-preset-btn" onClick={() => setBetAmount(Math.min(activeRange.max, Math.max(activeRange.min, snapshot.pot)))}>Pot</button>
-                      </>
-                    )}
-                    <button className="bet-preset-btn" onClick={() => setBetAmount(activeRange.max)}>All-in</button>
+                    <button type="button" className={`bet-preset-btn ${betAmount === activeRange.min ? "active" : ""}`} onPointerDown={(e) => { e.stopPropagation(); playClick(); setBetAmount(activeRange.min); }}>Min</button>
+                    <button type="button" className={`bet-preset-btn ${snapshot.pot > 0 && betAmount === Math.min(activeRange.max, Math.max(activeRange.min, Math.floor(snapshot.pot * 0.5))) ? "active" : ""}`} onPointerDown={(e) => { e.stopPropagation(); playClick(); setBetAmount(Math.min(activeRange.max, Math.max(activeRange.min, Math.floor(snapshot.pot * 0.5)))); }}>½ pot</button>
+                    <button type="button" className={`bet-preset-btn ${snapshot.pot > 0 && betAmount === Math.min(activeRange.max, Math.max(activeRange.min, snapshot.pot)) ? "active" : ""}`} onPointerDown={(e) => { e.stopPropagation(); playClick(); setBetAmount(Math.min(activeRange.max, Math.max(activeRange.min, snapshot.pot))); }}>Pot</button>
+                    <button type="button" className={`bet-preset-btn ${betAmount === activeRange.max ? "active" : ""}`} onPointerDown={(e) => { e.stopPropagation(); playAllIn(); setBetAmount(activeRange.max); }}>All-in</button>
                   </div>
                   <div className="bet-amount-display">{betAmount}</div>
                 </div>

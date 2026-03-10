@@ -736,6 +736,8 @@ export function createTableSnapshot(table: TableState, viewerGuestId: string | n
     phase: hand?.phase ?? null,
     actingSeatIndex: hand?.actingSeatIndex ?? null,
     dealerSeatIndex: hand?.dealerSeatIndex ?? null,
+    smallBlindSeatIndex: hand?.smallBlindSeatIndex ?? null,
+    bigBlindSeatIndex: hand?.bigBlindSeatIndex ?? null,
     actionDeadlineAt: hand?.actionDeadlineAt ?? null,
     handHistory: clone(table.handHistory),
     createdAt: table.createdAt,

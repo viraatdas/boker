@@ -165,6 +165,8 @@ export interface TableSnapshot {
   phase: HandPhase | null;
   actingSeatIndex: number | null;
   dealerSeatIndex: number | null;
+  smallBlindSeatIndex: number | null;
+  bigBlindSeatIndex: number | null;
   actionDeadlineAt: string | null;
   handHistory: HandResult[];
   createdAt: string;
@@ -225,3 +227,7 @@ export interface BotDecision {
   action: Extract<PlayerActionType, "fold" | "check" | "call" | "bet" | "raise">;
   amount?: number;
 }
+
+export type BotPersonality = "aggressive" | "tight" | "loose" | "tricky" | "passive";
+
+export const BOT_PERSONALITIES: BotPersonality[] = ["aggressive", "tight", "loose", "tricky", "passive"];
