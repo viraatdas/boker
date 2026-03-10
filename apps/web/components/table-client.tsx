@@ -248,184 +248,187 @@ export function TableClient({ tableId }: TableClientProps) {
       {error ? <div className="error-banner">{error}</div> : null}
 
       <section className="table-layout">
-        {/* ── Felt table ── */}
-        <div className="felt-shell">
-          <div className="board-center">
-            <div className="pot-pill">Pot {snapshot.pot}</div>
-            <div className="board-row">
-              {snapshot.board.length === 0
-                ? Array.from({ length: 5 }, (_, i) => <GhostCard size="board-size" key={i} />)
-                : snapshot.board.map((card) => (
-                    <PlayingCard card={card} size="board-size" key={`${card.rank}${card.suit}`} />
-                  ))
-              }
-              {/* Fill remaining ghost slots */}
-              {snapshot.board.length > 0 && snapshot.board.length < 5
-                ? Array.from({ length: 5 - snapshot.board.length }, (_, i) => <GhostCard size="board-size" key={`g${i}`} />)
-                : null
-              }
+        {/* ── Felt + actions column ── */}
+        <div className="felt-col">
+          <div className="felt-shell">
+            <div className="board-center">
+              <div className="pot-pill">Pot {snapshot.pot}</div>
+              <div className="board-row">
+                {snapshot.board.length === 0
+                  ? Array.from({ length: 5 }, (_, i) => <GhostCard size="board-size" key={i} />)
+                  : snapshot.board.map((card) => (
+                      <PlayingCard card={card} size="board-size" key={`${card.rank}${card.suit}`} />
+                    ))
+                }
+                {snapshot.board.length > 0 && snapshot.board.length < 5
+                  ? Array.from({ length: 5 - snapshot.board.length }, (_, i) => <GhostCard size="board-size" key={`g${i}`} />)
+                  : null
+                }
+              </div>
+              <div className="table-meta">
+                <span>{snapshot.phase ?? "waiting"}</span>
+                {snapshot.actingSeatIndex !== null && (
+                  <span>Seat {snapshot.actingSeatIndex + 1} to act</span>
+                )}
+              </div>
             </div>
-            <div className="table-meta">
-              <span>{snapshot.phase ?? "waiting"}</span>
-              {snapshot.actingSeatIndex !== null && (
-                <span>Seat {snapshot.actingSeatIndex + 1} to act</span>
-              )}
-            </div>
+
+            {snapshot.seats.map((seat, index) => {
+              const occupied = Boolean(seat.player);
+              const canTakeSeat = !occupied && !viewerSeat;
+              const isActing = snapshot.actingSeatIndex === index;
+              const isFolded = seat.folded;
+              return (
+                <button
+                  type="button"
+                  key={seat.seatIndex}
+                  className={`seat seat-${index} ${occupied ? "occupied" : "open"} ${isActing ? "acting" : ""} ${isFolded ? "folded" : ""}`}
+                  onClick={() => {
+                    if (canTakeSeat) {
+                      setSelectedSeat(seat.seatIndex);
+                      void takeSeat(seat.seatIndex);
+                    }
+                  }}
+                >
+                  {occupied ? (
+                    <>
+                      <span className="seat-name">{seat.player?.displayName}</span>
+                      <span className="seat-stack">{seat.player?.stack}</span>
+                      <span className="seat-meta">
+                        {seat.folded ? "fold" : seat.allIn ? "ALL IN" : seat.lastAction ?? ""}
+                        {seat.player?.isBot ? <span className="bot-badge">AI</span> : null}
+                      </span>
+                      {seat.committed > 0 && <span className="seat-committed">{seat.committed}</span>}
+                      <div className="hole-row">
+                        {seat.holeCards.length > 0
+                          ? seat.holeCards.map((card) => (
+                              <PlayingCard card={card} size="hole-size" key={`${card.rank}${card.suit}`} />
+                            ))
+                          : snapshot.phase && snapshot.phase !== "complete"
+                            ? [0, 1].map((i) => <PlayingCard card={null} size="hole-size" key={i} />)
+                            : null
+                        }
+                      </div>
+                      {isActing && (
+                        <div className="timer-bar-container">
+                          <div
+                            className={`timer-bar ${timerPct < 25 ? "urgent" : ""}`}
+                            style={{ width: `${timerPct}%` }}
+                          />
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <span className="seat-name" style={{ opacity: 0.5 }}>Empty</span>
+                      <span className="seat-stack" style={{ fontSize: "0.7rem" }}>
+                        {selectedSeat === seat.seatIndex ? "Sitting..." : "Click to sit"}
+                      </span>
+                    </>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
-          {snapshot.seats.map((seat, index) => {
-            const occupied = Boolean(seat.player);
-            const canTakeSeat = !occupied && !viewerSeat;
-            const isActing = snapshot.actingSeatIndex === index;
-            const isFolded = seat.folded;
-            return (
-              <button
-                type="button"
-                key={seat.seatIndex}
-                className={`seat seat-${index} ${occupied ? "occupied" : "open"} ${isActing ? "acting" : ""} ${isFolded ? "folded" : ""}`}
-                onClick={() => {
-                  if (canTakeSeat) {
-                    setSelectedSeat(seat.seatIndex);
-                    void takeSeat(seat.seatIndex);
-                  }
-                }}
-              >
-                {occupied ? (
-                  <>
-                    <span className="seat-name">{seat.player?.displayName}</span>
-                    <span className="seat-stack">{seat.player?.stack}</span>
-                    <span className="seat-meta">
-                      {seat.folded ? "fold" : seat.allIn ? "ALL IN" : seat.lastAction ?? ""}
-                      {seat.player?.isBot ? <span className="bot-badge">AI</span> : null}
-                    </span>
-                    {seat.committed > 0 && <span className="seat-committed">{seat.committed}</span>}
-                    <div className="hole-row">
-                      {seat.holeCards.length > 0
-                        ? seat.holeCards.map((card) => (
-                            <PlayingCard card={card} size="hole-size" key={`${card.rank}${card.suit}`} />
-                          ))
-                        : snapshot.phase && snapshot.phase !== "complete"
-                          ? [0, 1].map((i) => <PlayingCard card={null} size="hole-size" key={i} />)
-                          : null
-                      }
-                    </div>
-                    {isActing && (
-                      <div className="timer-bar-container">
-                        <div
-                          className={`timer-bar ${timerPct < 25 ? "urgent" : ""}`}
-                          style={{ width: `${timerPct}%` }}
-                        />
-                      </div>
+          {/* ── Action bar below felt, next to your cards ── */}
+          {viewerSeat && (
+            <div className="action-bar">
+              <div className="action-bar-cards">
+                {viewerSeat.holeCards.length > 0
+                  ? viewerSeat.holeCards.map((card) => (
+                      <PlayingCard card={card} size="board-size" key={`ab-${card.rank}${card.suit}`} />
+                    ))
+                  : snapshot.phase && snapshot.phase !== "complete"
+                    ? [0, 1].map((i) => <PlayingCard card={null} size="board-size" key={`ab-${i}`} />)
+                    : null
+                }
+              </div>
+
+              <div className="action-bar-buttons">
+                <button
+                  className="action-button fold-btn"
+                  disabled={!legalActions?.canFold}
+                  onClick={() => sendAction("fold")}
+                >Fold</button>
+                <button
+                  className="action-button check-btn"
+                  disabled={!legalActions?.canCheck}
+                  onClick={() => sendAction("check")}
+                >Check</button>
+                <button
+                  className="action-button call-btn"
+                  disabled={!legalActions?.callAmount}
+                  onClick={() => sendAction("call")}
+                >Call{legalActions?.callAmount ? ` ${legalActions.callAmount}` : ""}</button>
+                <button
+                  className="action-button bet-btn"
+                  disabled={!legalActions?.betRange}
+                  onClick={() => sendAction("bet", betAmount)}
+                >Bet{legalActions?.betRange ? ` ${betAmount}` : ""}</button>
+                <button
+                  className="action-button raise-btn"
+                  disabled={!legalActions?.raiseRange}
+                  onClick={() => sendAction("raise", betAmount)}
+                >Raise{legalActions?.raiseRange ? ` ${betAmount}` : ""}</button>
+              </div>
+
+              {activeRange && (
+                <div className="action-bar-sizing">
+                  <input
+                    type="range"
+                    className="bet-slider"
+                    min={activeRange.min}
+                    max={activeRange.max}
+                    step={Math.max(1, snapshot.config.bigBlind)}
+                    value={betAmount}
+                    onChange={(e) => setBetAmount(Number(e.target.value))}
+                  />
+                  <div className="bet-presets">
+                    <button className="bet-preset-btn" onClick={() => setBetAmount(activeRange.min)}>Min</button>
+                    {snapshot.pot > 0 && (
+                      <>
+                        <button className="bet-preset-btn" onClick={() => setBetAmount(Math.min(activeRange.max, Math.max(activeRange.min, Math.floor(snapshot.pot * 0.5))))}>½ pot</button>
+                        <button className="bet-preset-btn" onClick={() => setBetAmount(Math.min(activeRange.max, Math.max(activeRange.min, snapshot.pot)))}>Pot</button>
+                      </>
                     )}
-                  </>
-                ) : (
-                  <>
-                    <span className="seat-name" style={{ opacity: 0.5 }}>Empty</span>
-                    <span className="seat-stack" style={{ fontSize: "0.7rem" }}>
-                      {selectedSeat === seat.seatIndex ? "Sitting..." : "Click to sit"}
-                    </span>
-                  </>
-                )}
-              </button>
-            );
-          })}
+                    <button className="bet-preset-btn" onClick={() => setBetAmount(activeRange.max)}>All-in</button>
+                  </div>
+                  <div className="bet-amount-display">{betAmount}</div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* ── Side panel ── */}
+        {/* ── Side panel (history + feed + rebuy) ── */}
         <aside className="side-panel">
-          {/* Actions */}
-          <section className="glass-card actions-card">
-            <div className="card-header">
-              <div>
-                <p className="eyebrow">{viewerSeat ? `Seat ${viewerSeat.seatIndex + 1}` : "Observing"}</p>
-                <h2>Actions</h2>
-              </div>
-            </div>
-
-            <div className="action-grid">
-              <button
-                className="action-button fold-btn"
-                disabled={!legalActions?.canFold}
-                onClick={() => sendAction("fold")}
-              >Fold</button>
-              <button
-                className="action-button check-btn"
-                disabled={!legalActions?.canCheck}
-                onClick={() => sendAction("check")}
-              >Check</button>
-              <button
-                className="action-button call-btn"
-                disabled={!legalActions?.callAmount}
-                onClick={() => sendAction("call")}
-              >Call{legalActions?.callAmount ? ` ${legalActions.callAmount}` : ""}</button>
-              <button
-                className="action-button bet-btn"
-                disabled={!legalActions?.betRange}
-                onClick={() => sendAction("bet", betAmount)}
-              >Bet{legalActions?.betRange ? ` ${betAmount}` : ""}</button>
-              <button
-                className="action-button raise-btn"
-                disabled={!legalActions?.raiseRange}
-                onClick={() => sendAction("raise", betAmount)}
-              >Raise{legalActions?.raiseRange ? ` ${betAmount}` : ""}</button>
-              <button
-                className="action-button rebuy-btn"
-                disabled={!viewerSeat}
-                onClick={() => void handleRebuy()}
-              >Rebuy</button>
-            </div>
-
-            {/* Bet slider */}
-            {activeRange && (
-              <div className="bet-sizing">
-                <input
-                  type="range"
-                  className="bet-slider"
-                  min={activeRange.min}
-                  max={activeRange.max}
-                  step={Math.max(1, snapshot.config.bigBlind)}
-                  value={betAmount}
-                  onChange={(e) => setBetAmount(Number(e.target.value))}
-                />
-                <div className="bet-presets">
-                  <button className="bet-preset-btn" onClick={() => setBetAmount(activeRange.min)}>Min</button>
-                  {isRaise && snapshot.pot > 0 && (
-                    <>
-                      <button className="bet-preset-btn" onClick={() => setBetAmount(Math.min(activeRange.max, Math.max(activeRange.min, Math.floor(snapshot.pot * 0.5))))}>½ pot</button>
-                      <button className="bet-preset-btn" onClick={() => setBetAmount(Math.min(activeRange.max, Math.max(activeRange.min, snapshot.pot)))}>Pot</button>
-                    </>
-                  )}
-                  {!isRaise && snapshot.pot > 0 && (
-                    <>
-                      <button className="bet-preset-btn" onClick={() => setBetAmount(Math.min(activeRange.max, Math.max(activeRange.min, Math.floor(snapshot.pot * 0.5))))}>½ pot</button>
-                      <button className="bet-preset-btn" onClick={() => setBetAmount(Math.min(activeRange.max, Math.max(activeRange.min, snapshot.pot)))}>Pot</button>
-                    </>
-                  )}
-                  <button className="bet-preset-btn" onClick={() => setBetAmount(activeRange.max)}>All-in</button>
+          {viewerSeat && (
+            <section className="glass-card">
+              <div className="card-header">
+                <div>
+                  <p className="eyebrow">Seat {viewerSeat.seatIndex + 1}</p>
+                  <h2>Rebuy</h2>
                 </div>
-                <div className="bet-amount-display">{betAmount}</div>
               </div>
-            )}
-
-            {/* Buy-in */}
-            {viewerSeat && (
-              <div className="buyin-row" style={{ marginTop: "0.5rem" }}>
-                <label>
-                  Rebuy amount
-                  <input
-                    className="text-input"
-                    type="number"
-                    min={snapshot.config.minBuyIn}
-                    max={snapshot.config.maxBuyIn}
-                    value={buyIn}
-                    onChange={(e) => setBuyIn(Number(e.target.value))}
-                  />
-                </label>
+              <div className="buyin-row">
+                <input
+                  className="text-input"
+                  type="number"
+                  min={snapshot.config.minBuyIn}
+                  max={snapshot.config.maxBuyIn}
+                  value={buyIn}
+                  onChange={(e) => setBuyIn(Number(e.target.value))}
+                />
+                <button
+                  className="action-button rebuy-btn"
+                  disabled={!viewerSeat}
+                  onClick={() => void handleRebuy()}
+                >Rebuy</button>
               </div>
-            )}
-          </section>
+            </section>
+          )}
 
-          {/* Hand history */}
           <section className="glass-card history-card">
             <div className="card-header">
               <div>
@@ -450,7 +453,6 @@ export function TableClient({ tableId }: TableClientProps) {
             </div>
           </section>
 
-          {/* Event feed */}
           <section className="glass-card feed-card">
             <div className="card-header">
               <div>

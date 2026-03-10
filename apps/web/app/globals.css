@@ -421,6 +421,64 @@ label {
   align-items: start;
 }
 
+.felt-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* ── Action bar (below felt, next to your cards) ── */
+.action-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+}
+
+.action-bar-cards {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.action-bar-buttons {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.action-bar-buttons .action-button {
+  padding: 0.6rem 0.85rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.action-bar-sizing {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.action-bar-sizing .bet-slider {
+  width: 100%;
+}
+
+.action-bar-sizing .bet-presets {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.action-bar-sizing .bet-amount-display {
+  font-size: 0.78rem;
+}
+
 /* ── Felt table ── */
 .felt-shell {
   position: relative;
@@ -661,12 +719,12 @@ label {
   align-content: start;
 }
 
-/* ── Actions card ── */
-.actions-card .action-grid {
+/* ── Buyin row ── */
+.buyin-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr auto;
   gap: 0.4rem;
-  margin-top: 0.75rem;
+  align-items: end;
 }
 
 .action-button {
@@ -762,14 +820,6 @@ label {
   color: var(--accent);
   text-align: center;
   font-weight: 600;
-}
-
-/* ── Buyin row ── */
-.buyin-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.4rem;
-  align-items: end;
 }
 
 /* ── History / Feed panels (FIXED SIZE) ── */
@@ -934,8 +984,17 @@ label {
     gap: 0.5rem;
   }
 
-  .actions-card .action-grid {
-    grid-template-columns: 1fr 1fr;
+  .action-bar {
+    flex-wrap: wrap;
+  }
+
+  .action-bar-buttons {
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+
+  .action-bar-sizing {
+    flex-basis: 100%;
   }
 
   h1 { font-size: clamp(1.6rem, 6vw, 2.4rem); }
