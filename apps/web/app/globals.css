@@ -423,14 +423,22 @@ label {
 /* ── Action bar (centered, below felt) ── */
 .action-bar {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 0.65rem;
+  gap: 0.5rem;
   padding: 0.65rem 1rem;
   background: var(--bg-panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow);
+}
+
+.action-bar-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .action-bar-cards {
@@ -452,12 +460,12 @@ label {
 }
 
 .action-bar-sizing {
-  flex: 1;
-  min-width: 0;
-  max-width: 280px;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 0.3rem;
+  width: 100%;
+  max-width: 400px;
 }
 
 .action-bar-sizing .bet-slider {
@@ -467,6 +475,7 @@ label {
 .action-bar-sizing .bet-presets {
   display: flex;
   gap: 0.2rem;
+  width: 100%;
 }
 
 .action-bar-sizing .bet-amount-display {
@@ -980,7 +989,7 @@ label {
     gap: 0.4rem;
   }
 
-  .action-bar {
+  .action-bar-main {
     flex-wrap: wrap;
     justify-content: center;
   }
@@ -989,11 +998,6 @@ label {
     flex-wrap: wrap;
     gap: 0.25rem;
     justify-content: center;
-  }
-
-  .action-bar-sizing {
-    flex-basis: 100%;
-    max-width: 100%;
   }
 
   h1 { font-size: clamp(1.5rem, 5.5vw, 2.2rem); }

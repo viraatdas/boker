@@ -334,43 +334,45 @@ export function TableClient({ tableId }: TableClientProps) {
           {/* ── Action bar below felt, next to your cards ── */}
           {viewerSeat && (
             <div className="action-bar">
-              <div className="action-bar-cards">
-                {viewerSeat.holeCards.length > 0
-                  ? viewerSeat.holeCards.map((card) => (
-                      <PlayingCard card={card} size="board-size" key={`ab-${card.rank}${card.suit}`} />
-                    ))
-                  : snapshot.phase && snapshot.phase !== "complete"
-                    ? [0, 1].map((i) => <PlayingCard card={null} size="board-size" key={`ab-${i}`} />)
-                    : null
-                }
-              </div>
+              <div className="action-bar-main">
+                <div className="action-bar-cards">
+                  {viewerSeat.holeCards.length > 0
+                    ? viewerSeat.holeCards.map((card) => (
+                        <PlayingCard card={card} size="board-size" key={`ab-${card.rank}${card.suit}`} />
+                      ))
+                    : snapshot.phase && snapshot.phase !== "complete"
+                      ? [0, 1].map((i) => <PlayingCard card={null} size="board-size" key={`ab-${i}`} />)
+                      : null
+                  }
+                </div>
 
-              <div className="action-bar-buttons">
-                <button
-                  className="action-button fold-btn"
-                  disabled={!legalActions?.canFold}
-                  onClick={() => sendAction("fold")}
-                >Fold</button>
-                <button
-                  className="action-button check-btn"
-                  disabled={!legalActions?.canCheck}
-                  onClick={() => sendAction("check")}
-                >Check</button>
-                <button
-                  className="action-button call-btn"
-                  disabled={!legalActions?.callAmount}
-                  onClick={() => sendAction("call")}
-                >Call{legalActions?.callAmount ? ` ${legalActions.callAmount}` : ""}</button>
-                <button
-                  className="action-button bet-btn"
-                  disabled={!legalActions?.betRange}
-                  onClick={() => sendAction("bet", betAmount)}
-                >Bet{legalActions?.betRange ? ` ${betAmount}` : ""}</button>
-                <button
-                  className="action-button raise-btn"
-                  disabled={!legalActions?.raiseRange}
-                  onClick={() => sendAction("raise", betAmount)}
-                >Raise{legalActions?.raiseRange ? ` ${betAmount}` : ""}</button>
+                <div className="action-bar-buttons">
+                  <button
+                    className="action-button fold-btn"
+                    disabled={!legalActions?.canFold}
+                    onClick={() => sendAction("fold")}
+                  >Fold</button>
+                  <button
+                    className="action-button check-btn"
+                    disabled={!legalActions?.canCheck}
+                    onClick={() => sendAction("check")}
+                  >Check</button>
+                  <button
+                    className="action-button call-btn"
+                    disabled={!legalActions?.callAmount}
+                    onClick={() => sendAction("call")}
+                  >Call{legalActions?.callAmount ? ` ${legalActions.callAmount}` : ""}</button>
+                  <button
+                    className="action-button bet-btn"
+                    disabled={!legalActions?.betRange}
+                    onClick={() => sendAction("bet", betAmount)}
+                  >Bet{legalActions?.betRange ? ` ${betAmount}` : ""}</button>
+                  <button
+                    className="action-button raise-btn"
+                    disabled={!legalActions?.raiseRange}
+                    onClick={() => sendAction("raise", betAmount)}
+                  >Raise{legalActions?.raiseRange ? ` ${betAmount}` : ""}</button>
+                </div>
               </div>
 
               {activeRange && (
