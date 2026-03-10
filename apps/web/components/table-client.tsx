@@ -335,17 +335,6 @@ export function TableClient({ tableId }: TableClientProps) {
           {viewerSeat && (
             <div className="action-bar">
               <div className="action-bar-main">
-                <div className="action-bar-cards">
-                  {viewerSeat.holeCards.length > 0
-                    ? viewerSeat.holeCards.map((card) => (
-                        <PlayingCard card={card} size="board-size" key={`ab-${card.rank}${card.suit}`} />
-                      ))
-                    : snapshot.phase && snapshot.phase !== "complete"
-                      ? [0, 1].map((i) => <PlayingCard card={null} size="board-size" key={`ab-${i}`} />)
-                      : null
-                  }
-                </div>
-
                 <div className="action-bar-buttons">
                   <button
                     className="action-button fold-btn"
