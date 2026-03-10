@@ -468,7 +468,6 @@ export function TableClient({ tableId }: TableClientProps) {
               ) : (
                 feed.map((event, index) => (
                   <div className="feed-row" key={`${event.kind}-${index}`}>
-                    <strong>{event.kind}</strong>
                     <span>{event.detail}</span>
                   </div>
                 ))
