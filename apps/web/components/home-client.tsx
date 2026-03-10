@@ -38,6 +38,7 @@ export function HomeClient() {
   const [tableCode, setTableCode] = useState("");
   const [config, setConfig] = useState<CreateConfigState>(defaultConfig);
   const [activePreset, setActivePreset] = useState(1); // "Low" by default
+  const [showCustomize, setShowCustomize] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -142,99 +143,106 @@ export function HomeClient() {
               <p className="eyebrow">Create</p>
               <h2>New table</h2>
             </div>
-            <span className="pill">{config.visibility}</span>
+            <span className="pill">{config.smallBlind}/{config.bigBlind}</span>
           </header>
 
-          <label style={{ marginBottom: "0.65rem" }}>
-            Quick setup
-            <div className="preset-row">
-              {PRESETS.map((preset, i) => (
-                <button
-                  key={preset.label}
-                  className={`preset-btn ${activePreset === i ? "active" : ""}`}
-                  onClick={() => applyPreset(i)}
-                >
-                  <span className="preset-label">{preset.label}</span>
-                  <span className="preset-detail">{preset.detail}</span>
-                </button>
-              ))}
-            </div>
-          </label>
-
-          <div className="form-grid">
-            <label>
-              Visibility
-              <select
-                className="text-input"
-                value={config.visibility}
-                onChange={(e) => setConfig((c) => ({ ...c, visibility: e.target.value as "public" | "private" }))}
+          <div className="preset-row">
+            {PRESETS.map((preset, i) => (
+              <button
+                key={preset.label}
+                className={`preset-btn ${activePreset === i ? "active" : ""}`}
+                onClick={() => applyPreset(i)}
               >
-                <option value="private">Private (invite link)</option>
-                <option value="public">Public (lobby)</option>
-              </select>
-            </label>
-            <label>
-              Blinds
-              <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
-                <input
-                  className="text-input"
-                  type="number"
-                  min={1}
-                  value={config.smallBlind}
-                  onChange={(e) => {
-                    const sb = Number(e.target.value);
-                    setConfig((c) => ({ ...c, smallBlind: sb, bigBlind: Math.max(sb * 2, c.bigBlind) }));
-                    setActivePreset(-1);
-                  }}
-                  style={{ flex: 1 }}
-                />
-                <span style={{ color: "var(--muted)" }}>/</span>
-                <input
-                  className="text-input"
-                  type="number"
-                  min={2}
-                  value={config.bigBlind}
-                  onChange={(e) => { setConfig((c) => ({ ...c, bigBlind: Number(e.target.value) })); setActivePreset(-1); }}
-                  style={{ flex: 1 }}
-                />
-              </div>
-            </label>
-            <label>
-              Min buy-in
-              <input
-                className="text-input"
-                type="number"
-                min={10}
-                value={config.minBuyIn}
-                onChange={(e) => { setConfig((c) => ({ ...c, minBuyIn: Number(e.target.value) })); setActivePreset(-1); }}
-              />
-            </label>
-            <label>
-              Max buy-in
-              <input
-                className="text-input"
-                type="number"
-                min={config.minBuyIn}
-                value={config.maxBuyIn}
-                onChange={(e) => { setConfig((c) => ({ ...c, maxBuyIn: Number(e.target.value) })); setActivePreset(-1); }}
-              />
-            </label>
-            <label className="full-width">
-              AI players
-              <div className="ai-seat-grid">
-                {[0, 1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    className={`ai-seat-chip ${config.aiSeatCount === n ? "active" : ""}`}
-                    onClick={() => setConfig((c) => ({ ...c, aiSeatCount: n }))}
-                    title={`${n} AI player${n !== 1 ? "s" : ""}`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </label>
+                <span className="preset-label">{preset.label}</span>
+                <span className="preset-detail">{preset.detail}</span>
+              </button>
+            ))}
           </div>
+
+          <button
+            className="text-button"
+            style={{ marginBottom: showCustomize ? "0.5rem" : "0.75rem" }}
+            onClick={() => setShowCustomize((v) => !v)}
+          >
+            {showCustomize ? "Hide options" : "Customize"}
+          </button>
+
+          {showCustomize && (
+            <div className="form-grid">
+              <label>
+                Visibility
+                <select
+                  className="text-input"
+                  value={config.visibility}
+                  onChange={(e) => setConfig((c) => ({ ...c, visibility: e.target.value as "public" | "private" }))}
+                >
+                  <option value="private">Private (invite link)</option>
+                  <option value="public">Public (lobby)</option>
+                </select>
+              </label>
+              <label>
+                Blinds
+                <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
+                  <input
+                    className="text-input"
+                    type="number"
+                    min={1}
+                    value={config.smallBlind}
+                    onChange={(e) => {
+                      const sb = Number(e.target.value);
+                      setConfig((c) => ({ ...c, smallBlind: sb, bigBlind: Math.max(sb * 2, c.bigBlind) }));
+                      setActivePreset(-1);
+                    }}
+                    style={{ flex: 1 }}
+                  />
+                  <span style={{ color: "var(--muted)" }}>/</span>
+                  <input
+                    className="text-input"
+                    type="number"
+                    min={2}
+                    value={config.bigBlind}
+                    onChange={(e) => { setConfig((c) => ({ ...c, bigBlind: Number(e.target.value) })); setActivePreset(-1); }}
+                    style={{ flex: 1 }}
+                  />
+                </div>
+              </label>
+              <label>
+                Min buy-in
+                <input
+                  className="text-input"
+                  type="number"
+                  min={10}
+                  value={config.minBuyIn}
+                  onChange={(e) => { setConfig((c) => ({ ...c, minBuyIn: Number(e.target.value) })); setActivePreset(-1); }}
+                />
+              </label>
+              <label>
+                Max buy-in
+                <input
+                  className="text-input"
+                  type="number"
+                  min={config.minBuyIn}
+                  value={config.maxBuyIn}
+                  onChange={(e) => { setConfig((c) => ({ ...c, maxBuyIn: Number(e.target.value) })); setActivePreset(-1); }}
+                />
+              </label>
+              <label className="full-width">
+                AI players
+                <div className="ai-seat-grid">
+                  {[0, 1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      className={`ai-seat-chip ${config.aiSeatCount === n ? "active" : ""}`}
+                      onClick={() => setConfig((c) => ({ ...c, aiSeatCount: n }))}
+                      title={`${n} AI player${n !== 1 ? "s" : ""}`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </label>
+            </div>
+          )}
 
           <button className="primary-button" style={{ width: "100%" }} onClick={() => void handleCreateTable()} disabled={loading === "create" || !canSubmit}>
             {loading === "create" ? "Creating..." : "Create table"}
