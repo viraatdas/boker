@@ -159,6 +159,22 @@ export function HomeClient() {
             ))}
           </div>
 
+          <label style={{ marginBottom: "0.5rem" }}>
+            AI players
+            <div className="ai-seat-grid">
+              {[0, 1, 2, 3, 4, 5].map((n) => (
+                <button
+                  key={n}
+                  className={`ai-seat-chip ${config.aiSeatCount === n ? "active" : ""}`}
+                  onClick={() => setConfig((c) => ({ ...c, aiSeatCount: n }))}
+                  title={`${n} AI player${n !== 1 ? "s" : ""}`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </label>
+
           <button
             className="text-button"
             style={{ marginBottom: showCustomize ? "0.5rem" : "0.75rem" }}
@@ -225,21 +241,6 @@ export function HomeClient() {
                   value={config.maxBuyIn}
                   onChange={(e) => { setConfig((c) => ({ ...c, maxBuyIn: Number(e.target.value) })); setActivePreset(-1); }}
                 />
-              </label>
-              <label className="full-width">
-                AI players
-                <div className="ai-seat-grid">
-                  {[0, 1, 2, 3, 4, 5].map((n) => (
-                    <button
-                      key={n}
-                      className={`ai-seat-chip ${config.aiSeatCount === n ? "active" : ""}`}
-                      onClick={() => setConfig((c) => ({ ...c, aiSeatCount: n }))}
-                      title={`${n} AI player${n !== 1 ? "s" : ""}`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
               </label>
             </div>
           )}
