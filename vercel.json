@@ -1,4 +1,4 @@
 {
-  "buildCommand": "pnpm --filter @boker/web build",
+  "buildCommand": "pnpm --filter @boker/shared build && pnpm --filter @boker/web build",
   "framework": "nextjs"
 }
