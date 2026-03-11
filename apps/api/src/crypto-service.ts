@@ -142,9 +142,10 @@ export class CryptoService {
         };
         if (
           parsed.type === "transfer" &&
-          parsed.info?.source === fromAddress &&
           parsed.info?.destination === toAddress &&
-          typeof parsed.info.lamports === "number"
+          typeof parsed.info.lamports === "number" &&
+          // If fromAddress is provided, verify it matches; otherwise just check destination
+          (fromAddress === "" || parsed.info?.source === fromAddress)
         ) {
           return { lamports: parsed.info.lamports };
         }

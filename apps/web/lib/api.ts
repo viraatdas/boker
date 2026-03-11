@@ -115,7 +115,7 @@ export async function getEscrowInfo(): Promise<{ enabled: boolean; escrowAddress
 
 export async function submitDeposit(
   tableId: string,
-  input: { guestId: string; txSignature: string; expectedAmountLamports: number }
+  input: { guestId: string; txSignature: string; expectedAmountLamports: number; fromAddress?: string }
 ): Promise<{ verified: boolean; chipsCredited: number }> {
   return apiFetch(`/v1/tables/${tableId}/deposit`, {
     method: "POST",

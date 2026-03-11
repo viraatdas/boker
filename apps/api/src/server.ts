@@ -119,7 +119,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       parsed.guestId,
       parsed.txSignature,
       parsed.expectedAmountLamports,
-      "" // fromAddress will be derived from guestId's wallet
+      parsed.fromAddress ?? ""
     );
     return reply.send(result);
   });

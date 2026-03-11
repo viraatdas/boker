@@ -39,7 +39,8 @@ export const walletInfoSchema = z.object({
 export const depositRequestSchema = z.object({
   guestId: z.string().uuid(),
   txSignature: z.string().min(64).max(128),
-  expectedAmountLamports: z.number().int().positive()
+  expectedAmountLamports: z.number().int().positive(),
+  fromAddress: z.string().min(32).max(44).optional()
 });
 
 export const withdrawRequestSchema = z.object({

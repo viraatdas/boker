@@ -285,6 +285,7 @@ export function TableClient({ tableId }: TableClientProps) {
         guestId,
         txSignature: txSig,
         expectedAmountLamports: amount,
+        fromAddress: wallet.address ?? undefined,
       });
       if (!result.verified) {
         setError("Deposit could not be verified. Please try again.");
@@ -337,6 +338,7 @@ export function TableClient({ tableId }: TableClientProps) {
           guestId: session.guestId,
           txSignature: txSig,
           expectedAmountLamports: amount,
+          fromAddress: wallet.address ?? undefined,
         });
         setDepositPending(false);
         if (!depositResult.verified) {
