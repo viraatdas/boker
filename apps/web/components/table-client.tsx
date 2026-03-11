@@ -3,9 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Card, LegalActions, TableSnapshot } from "@boker/shared";
-import { createGuest, fetchSnapshot, getWsBaseUrl, guestStorage, joinTable, leaveTable, rebuy, seatAtTable } from "../lib/api";
+import { formatSol } from "@boker/shared";
+import { createGuest, fetchSnapshot, getWsBaseUrl, guestStorage, joinTable, leaveTable, rebuy, seatAtTable, submitDeposit, requestWithdrawal } from "../lib/api";
 import { playCardDeal, playCardFlip, playCheck, playChipBet, playClick, playFold, playAllIn, playWin, playNewHand, playYourTurn } from "../lib/sounds";
 import { generateAdvice, type CoachAdvice } from "../lib/coach";
+import { useWallet } from "../lib/wallet";
+import { WalletButton } from "./wallet-button";
 
 interface TableClientProps {
   tableId: string;
@@ -56,6 +59,7 @@ function ChipStack({ amount, className }: { amount: number; className?: string }
 }
 
 export function TableClient({ tableId }: TableClientProps) {
+  const wallet = useWallet();
   const [snapshot, setSnapshot] = useState<TableSnapshot | null>(null);
   const [guestId, setGuestId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
@@ -71,6 +75,8 @@ export function TableClient({ tableId }: TableClientProps) {
   const [coachAdvice, setCoachAdvice] = useState<CoachAdvice | null>(null);
   const [coachModeGuests, setCoachModeGuests] = useState<Set<string>>(new Set());
   const [botPersonalities, setBotPersonalities] = useState<Record<string, string>>({});
+  const [depositPending, setDepositPending] = useState(false);
+  const [withdrawPending, setWithdrawPending] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const prevPhaseRef = useRef<string | null>(null);
@@ -244,9 +250,98 @@ export function TableClient({ tableId }: TableClientProps) {
     return session;
   }
 
+  const isCrypto = snapshot?.mode === "crypto";
+
+  function formatAmount(amount: number): string {
+    if (isCrypto) return formatSol(amount);
+    return String(amount);
+  }
+
+  async function handleDeposit() {
+    if (!guestId || !wallet.connected || !wallet.address || !snapshot?.cryptoConfig) return;
+    setDepositPending(true);
+    setError(null);
+    try {
+      const escrowAddress = snapshot.cryptoConfig.escrowAddress;
+      const amount = snapshot.cryptoConfig.buyInLamports;
+      const txSig = await wallet.sendSol(escrowAddress, amount);
+      // Wait a bit for confirmation, then verify
+      await new Promise((r) => setTimeout(r, 2000));
+      const result = await submitDeposit(tableId, {
+        guestId,
+        txSignature: txSig,
+        expectedAmountLamports: amount,
+      });
+      if (!result.verified) {
+        setError("Deposit could not be verified. Please try again.");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Deposit failed");
+    } finally {
+      setDepositPending(false);
+    }
+  }
+
+  async function handleWithdraw() {
+    if (!guestId || !wallet.address || !viewerSeat?.player) return;
+    setWithdrawPending(true);
+    setError(null);
+    try {
+      await requestWithdrawal(tableId, {
+        guestId,
+        amountLamports: viewerSeat.player.stack,
+        toAddress: wallet.address,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Withdrawal failed");
+    } finally {
+      setWithdrawPending(false);
+    }
+  }
+
   async function takeSeat(seatIndex: number) {
     try {
       const session = await ensureNamedGuest();
+
+      // For crypto tables: require wallet, deposit first, then seat
+      if (isCrypto) {
+        if (!wallet.connected || !wallet.address) {
+          setError("Connect your wallet first to sit at a crypto table.");
+          return;
+        }
+        if (!snapshot?.cryptoConfig) {
+          setError("Crypto config not available.");
+          return;
+        }
+        // Send deposit to escrow
+        setDepositPending(true);
+        const escrowAddress = snapshot.cryptoConfig.escrowAddress;
+        const amount = snapshot.cryptoConfig.buyInLamports;
+        const txSig = await wallet.sendSol(escrowAddress, amount);
+        await new Promise((r) => setTimeout(r, 2000));
+        const depositResult = await submitDeposit(tableId, {
+          guestId: session.guestId,
+          txSignature: txSig,
+          expectedAmountLamports: amount,
+        });
+        setDepositPending(false);
+        if (!depositResult.verified) {
+          setError("Deposit verification failed. Cannot sit down.");
+          return;
+        }
+        const next = await seatAtTable(tableId, {
+          guestId: session.guestId,
+          displayName: session.displayName,
+          seatIndex,
+          buyIn: depositResult.chipsCredited,
+          walletAddress: wallet.address,
+        });
+        setSnapshot(next);
+        setSelectedSeat(null);
+        setError(null);
+        return;
+      }
+
       const next = await seatAtTable(tableId, {
         guestId: session.guestId,
         displayName: session.displayName,
@@ -257,6 +352,7 @@ export function TableClient({ tableId }: TableClientProps) {
       setSelectedSeat(null);
       setError(null);
     } catch (e) {
+      setDepositPending(false);
       setError(e instanceof Error ? e.message : "Could not sit down");
     }
   }
@@ -334,9 +430,16 @@ export function TableClient({ tableId }: TableClientProps) {
       <section className="table-header">
         <div>
           <p className="eyebrow">Table {snapshot.tableCode}</p>
-          <h1>{snapshot.config.smallBlind}/{snapshot.config.bigBlind} NLHE</h1>
+          <h1>
+            {isCrypto
+              ? `${formatSol(snapshot.config.smallBlind)}/${formatSol(snapshot.config.bigBlind)} NLHE`
+              : `${snapshot.config.smallBlind}/${snapshot.config.bigBlind} NLHE`
+            }
+          </h1>
         </div>
         <div className="header-actions">
+          {isCrypto && <span className="pill crypto-pill">SOL</span>}
+          {isCrypto && <WalletButton />}
           <span className="pill">{snapshot.config.visibility}</span>
           <button
             type="button"
@@ -389,7 +492,7 @@ export function TableClient({ tableId }: TableClientProps) {
                     <span className="chip chip-color-2" style={{ marginLeft: -6 }} />
                   </span>
                 )}
-                <span>Pot {snapshot.pot}</span>
+                <span>Pot {formatAmount(snapshot.pot)}</span>
               </div>
               <div className="board-row">
                 {snapshot.board.length === 0
@@ -428,6 +531,10 @@ export function TableClient({ tableId }: TableClientProps) {
                   className={`seat seat-${index} ${occupied ? "occupied" : "open"} ${isActing ? "acting" : ""} ${isFolded ? "folded" : ""}`}
                   onClick={() => {
                     if (canTakeSeat) {
+                      if (isCrypto && !wallet.connected) {
+                        setError("Connect your wallet to sit at a crypto table.");
+                        return;
+                      }
                       playClick();
                       setSelectedSeat(seat.seatIndex);
                       void takeSeat(seat.seatIndex);
@@ -440,7 +547,7 @@ export function TableClient({ tableId }: TableClientProps) {
                   {occupied ? (
                     <>
                       <span className="seat-name">{seat.player?.displayName}</span>
-                      <span className="seat-stack">{seat.player?.stack}</span>
+                      <span className="seat-stack">{formatAmount(seat.player?.stack ?? 0)}</span>
                       <span className="seat-meta">
                         {seat.folded ? "fold" : seat.allIn ? "ALL IN" : seat.lastAction ?? ""}
                         {seat.player?.isBot && botPersonality ? (
@@ -514,17 +621,17 @@ export function TableClient({ tableId }: TableClientProps) {
                     className="action-button call-btn"
                     disabled={!legalActions?.callAmount}
                     onClick={() => sendAction("call")}
-                  >Call{legalActions?.callAmount ? ` ${legalActions.callAmount}` : ""}</button>
+                  >Call{legalActions?.callAmount ? ` ${formatAmount(legalActions.callAmount)}` : ""}</button>
                   <button
                     className="action-button bet-btn"
                     disabled={!legalActions?.betRange}
                     onClick={() => sendAction("bet", betAmount)}
-                  >Bet{legalActions?.betRange ? ` ${betAmount}` : ""}</button>
+                  >Bet{legalActions?.betRange ? ` ${formatAmount(betAmount)}` : ""}</button>
                   <button
                     className="action-button raise-btn"
                     disabled={!legalActions?.raiseRange}
                     onClick={() => sendAction("raise", betAmount)}
-                  >Raise{legalActions?.raiseRange ? ` ${betAmount}` : ""}</button>
+                  >Raise{legalActions?.raiseRange ? ` ${formatAmount(betAmount)}` : ""}</button>
                 </div>
               </div>
 
@@ -545,7 +652,7 @@ export function TableClient({ tableId }: TableClientProps) {
                     <button type="button" className={`bet-preset-btn ${snapshot.pot > 0 && betAmount === Math.min(activeRange.max, Math.max(activeRange.min, snapshot.pot)) ? "active" : ""}`} onPointerDown={(e) => { e.stopPropagation(); playClick(); setBetAmount(Math.min(activeRange.max, Math.max(activeRange.min, snapshot.pot))); }}>Pot</button>
                     <button type="button" className={`bet-preset-btn ${betAmount === activeRange.max ? "active" : ""}`} onPointerDown={(e) => { e.stopPropagation(); playAllIn(); setBetAmount(activeRange.max); }}>All-in</button>
                   </div>
-                  <div className="bet-amount-display">{betAmount}</div>
+                  <div className="bet-amount-display">{formatAmount(betAmount)}</div>
                 </div>
               )}
             </div>
@@ -554,7 +661,43 @@ export function TableClient({ tableId }: TableClientProps) {
 
         {/* ── Side panel (history + feed + rebuy) ── */}
         <aside className="side-panel">
-          {viewerSeat && (
+          {viewerSeat && isCrypto && (
+            <section className="glass-card">
+              <div className="card-header">
+                <div>
+                  <p className="eyebrow">Crypto</p>
+                  <h2>Wallet</h2>
+                </div>
+              </div>
+              <div className="crypto-seat-info">
+                <div className="crypto-balance-row">
+                  <span>Stack</span>
+                  <strong>{formatAmount(viewerSeat.player?.stack ?? 0)}</strong>
+                </div>
+                {wallet.connected && (
+                  <>
+                    <button
+                      className="action-button"
+                      onClick={() => void handleDeposit()}
+                      disabled={depositPending || !snapshot.cryptoConfig}
+                    >
+                      {depositPending ? "Depositing..." : `Deposit ${formatSol(snapshot.cryptoConfig?.buyInLamports ?? 0)}`}
+                    </button>
+                    <button
+                      className="action-button"
+                      onClick={() => void handleWithdraw()}
+                      disabled={withdrawPending || !viewerSeat.player?.stack}
+                    >
+                      {withdrawPending ? "Withdrawing..." : `Withdraw ${formatAmount(viewerSeat.player?.stack ?? 0)}`}
+                    </button>
+                  </>
+                )}
+                {!wallet.connected && <WalletButton />}
+              </div>
+            </section>
+          )}
+
+          {viewerSeat && !isCrypto && (
             <section className="glass-card">
               <div className="card-header">
                 <div>

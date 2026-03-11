@@ -9,7 +9,9 @@ import {
   rebuySchema,
   seatPlayerSchema,
   tableActionSchema,
-  wsClientMessageSchema
+  wsClientMessageSchema,
+  depositRequestSchema,
+  withdrawRequestSchema
 } from "@boker/shared";
 import { createRepository, type Repository } from "./repository.js";
 import { GeminiBotService } from "./bot-service.js";
@@ -99,6 +101,41 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return manager.action(params.tableId, parsed.guestId, parsed.action, parsed.amount);
   });
 
+  // ── Crypto endpoints ──
+
+  app.get("/v1/crypto/escrow", async () => {
+    const address = manager.getEscrowAddress();
+    if (!address) {
+      return { enabled: false, escrowAddress: null };
+    }
+    return { enabled: true, escrowAddress: address };
+  });
+
+  app.post("/v1/tables/:tableId/deposit", async (request, reply) => {
+    const params = request.params as { tableId: string };
+    const parsed = depositRequestSchema.parse(request.body);
+    const result = await manager.verifyDeposit(
+      params.tableId,
+      parsed.guestId,
+      parsed.txSignature,
+      parsed.expectedAmountLamports,
+      "" // fromAddress will be derived from guestId's wallet
+    );
+    return reply.send(result);
+  });
+
+  app.post("/v1/tables/:tableId/withdraw", async (request, reply) => {
+    const params = request.params as { tableId: string };
+    const parsed = withdrawRequestSchema.parse(request.body);
+    const result = await manager.processWithdrawal(
+      params.tableId,
+      parsed.guestId,
+      parsed.toAddress,
+      parsed.amountLamports
+    );
+    return reply.send(result);
+  });
+
   app.get("/v1/tables/:tableId/ws", { websocket: true }, async (socket, request) => {
     const params = request.params as { tableId: string };
     const query = request.query as { guestId?: string };
@@ -133,6 +170,53 @@ export async function buildServer(options: BuildServerOptions = {}) {
           case "table.coachMode":
             manager.setCoachMode(params.tableId, message.guestId, message.enabled);
             break;
+          case "table.connectWallet":
+            // Store wallet address association
+            break;
+          case "table.deposit": {
+            const depositResult = await manager.verifyDeposit(
+              params.tableId,
+              message.guestId,
+              message.txSignature,
+              message.expectedAmountLamports,
+              "" // fromAddress resolved server-side
+            );
+            if (depositResult.verified) {
+              socket.send(JSON.stringify({
+                type: "table.depositConfirmed",
+                guestId: message.guestId,
+                amountLamports: message.expectedAmountLamports,
+                txSignature: message.txSignature
+              }));
+            } else {
+              socket.send(JSON.stringify({
+                type: "table.error",
+                message: "Deposit verification failed"
+              }));
+            }
+            break;
+          }
+          case "table.withdraw": {
+            const table = await manager.getTable(params.tableId);
+            const seat = table?.seats.find((s) => s.player?.guestId === message.guestId);
+            if (!seat?.player) {
+              socket.send(JSON.stringify({ type: "table.error", message: "Player not seated" }));
+              break;
+            }
+            const withdrawResult = await manager.processWithdrawal(
+              params.tableId,
+              message.guestId,
+              message.toAddress,
+              seat.player.stack
+            );
+            socket.send(JSON.stringify({
+              type: "table.withdrawalSent",
+              guestId: message.guestId,
+              amountLamports: seat.player.stack,
+              txSignature: withdrawResult.txSignature
+            }));
+            break;
+          }
         }
       } catch (error) {
         socket.send(

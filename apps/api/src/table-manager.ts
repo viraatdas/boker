@@ -10,6 +10,7 @@ import {
   setConnectionState,
   leaveTable as leaveTableInEngine,
   BOT_PERSONALITIES,
+  createId,
   type BotPersonality,
   type CreateGuestInput,
   type CreateTableInput,
@@ -22,6 +23,7 @@ import {
   type TableState
 } from "@boker/shared";
 import { GeminiBotService } from "./bot-service.js";
+import { CryptoService } from "./crypto-service.js";
 import type { Repository } from "./repository.js";
 
 interface Subscriber {
@@ -83,10 +85,16 @@ export class TableManager {
   private botPersonalities = new Map<string, BotPersonality>(); // guestId → personality
   private coachModeGuests = new Map<string, Set<string>>(); // tableId → Set<guestId>
 
+  private readonly crypto: CryptoService | null;
+
   constructor(
     private readonly repository: Repository,
-    private readonly bots = new GeminiBotService()
-  ) {}
+    private readonly bots = new GeminiBotService(),
+    crypto?: CryptoService
+  ) {
+    // Only initialize crypto service if ESCROW_PRIVATE_KEY is set or explicitly provided
+    this.crypto = crypto ?? (process.env.ESCROW_PRIVATE_KEY ? new CryptoService() : null);
+  }
 
   async createGuest(input: CreateGuestInput): Promise<GuestSession> {
     const existing = input.guestId ? await this.repository.getGuest(input.guestId) : null;
@@ -103,12 +111,28 @@ export class TableManager {
 
   async createTable(input: CreateTableInput): Promise<{ table: TableState; snapshot: TableSnapshot }> {
     await this.createGuest({ guestId: input.guestId, displayName: input.displayName });
+
+    // For crypto tables, inject the escrow address into cryptoConfig
+    if (input.mode === "crypto") {
+      if (!this.crypto) {
+        throw new Error("Crypto tables are not enabled on this server (no ESCROW_PRIVATE_KEY)");
+      }
+      input = {
+        ...input,
+        cryptoConfig: {
+          currency: "SOL",
+          buyInLamports: input.cryptoConfig?.buyInLamports ?? 0,
+          escrowAddress: this.crypto.escrowAddress
+        }
+      };
+    }
+
     let table = createTable(input);
     table = addObserver(table, { guestId: input.guestId, displayName: input.displayName });
     await this.persist(table, {
       eventType: "table.created",
-      payload: { hostGuestId: input.guestId, config: table.config },
-      detail: "Table created"
+      payload: { hostGuestId: input.guestId, config: table.config, mode: table.mode },
+      detail: table.mode === "crypto" ? "Crypto table created" : "Table created"
     });
     return {
       table,
@@ -144,12 +168,15 @@ export class TableManager {
 
   async seatPlayer(
     tableId: string,
-    input: { guestId: string; displayName: string; seatIndex: number; buyIn: number }
+    input: { guestId: string; displayName: string; seatIndex: number; buyIn: number; walletAddress?: string }
   ): Promise<TableSnapshot> {
     const table = await this.requireTable(tableId);
     this.assertUniqueName(table, input.guestId, input.displayName);
     let next = seatPlayerInEngine(table, input);
-    next = this.ensureBotSeats(next);
+    // Skip bots for crypto tables
+    if (next.mode !== "crypto") {
+      next = this.ensureBotSeats(next);
+    }
     const handStarted = !table.currentHand && !!next.currentHand;
     await this.persist(next, {
       eventType: "player.seated",
@@ -168,9 +195,16 @@ export class TableManager {
 
   async leaveTable(tableId: string, guestId: string): Promise<TableSnapshot | null> {
     const table = await this.requireTable(tableId);
-    const displayName = table.seats.find((seat) => seat.player?.guestId === guestId)?.player?.displayName ??
+    const seatData = table.seats.find((seat) => seat.player?.guestId === guestId);
+    const displayName = seatData?.player?.displayName ??
       table.observers.find((observer) => observer.guestId === guestId)?.displayName ??
       "Player";
+
+    // For crypto tables, auto-withdraw remaining chips before leaving
+    if (table.mode === "crypto" && seatData?.player && seatData.player.stack > 0 && seatData.player.walletAddress) {
+      await this.processWithdrawal(table.tableId, guestId, seatData.player.walletAddress, seatData.player.stack);
+    }
+
     const next = leaveTableInEngine(table, guestId);
     await this.persist(next, {
       eventType: "player.left",
@@ -210,6 +244,105 @@ export class TableManager {
   async snapshot(tableId: string, guestId: string | null): Promise<TableSnapshot> {
     const table = await this.requireTable(tableId);
     return createTableSnapshot(table, guestId);
+  }
+
+  // ── Crypto methods ──
+
+  getEscrowAddress(): string | null {
+    return this.crypto?.escrowAddress ?? null;
+  }
+
+  async verifyDeposit(
+    tableId: string,
+    guestId: string,
+    txSignature: string,
+    expectedAmountLamports: number,
+    fromAddress: string
+  ): Promise<{ verified: boolean; chipsCredited: number }> {
+    if (!this.crypto) {
+      throw new Error("Crypto is not enabled on this server");
+    }
+
+    const table = await this.requireTable(tableId);
+    if (table.mode !== "crypto") {
+      throw new Error("This is not a crypto table");
+    }
+
+    // Check for duplicate tx
+    const existing = await this.repository.getCryptoTransaction(txSignature);
+    if (existing) {
+      throw new Error("This transaction has already been processed");
+    }
+
+    const verification = await this.crypto.verifyDeposit(txSignature, expectedAmountLamports, fromAddress);
+
+    const txRecord = {
+      id: createId(),
+      tableId,
+      guestId,
+      type: "deposit" as const,
+      amountLamports: verification.amountLamports,
+      txSignature,
+      status: verification.verified ? ("confirmed" as const) : ("failed" as const),
+      createdAt: new Date().toISOString()
+    };
+    await this.repository.saveCryptoTransaction(txRecord);
+
+    if (!verification.verified) {
+      return { verified: false, chipsCredited: 0 };
+    }
+
+    // In crypto mode, chips = lamports. Credit the deposited amount.
+    const chipsCredited = verification.amountLamports;
+    return { verified: true, chipsCredited };
+  }
+
+  async processWithdrawal(
+    tableId: string,
+    guestId: string,
+    toAddress: string,
+    amountLamports: number
+  ): Promise<{ txSignature: string }> {
+    if (!this.crypto) {
+      throw new Error("Crypto is not enabled on this server");
+    }
+
+    const table = await this.requireTable(tableId);
+    if (table.mode !== "crypto") {
+      throw new Error("This is not a crypto table");
+    }
+
+    const seat = table.seats.find((s) => s.player?.guestId === guestId);
+    if (!seat?.player) {
+      throw new Error("Player is not seated");
+    }
+
+    if (amountLamports > seat.player.stack) {
+      throw new Error("Withdrawal amount exceeds available chips");
+    }
+
+    const result = await this.crypto.sendWithdrawal(toAddress, amountLamports);
+
+    const txRecord = {
+      id: createId(),
+      tableId,
+      guestId,
+      type: "withdrawal" as const,
+      amountLamports,
+      txSignature: result.txSignature,
+      status: "confirmed" as const,
+      createdAt: new Date().toISOString()
+    };
+    await this.repository.saveCryptoTransaction(txRecord);
+
+    return { txSignature: result.txSignature };
+  }
+
+  async getEscrowBalance(): Promise<number> {
+    if (!this.crypto) {
+      throw new Error("Crypto is not enabled on this server");
+    }
+    return this.crypto.getEscrowBalance();
   }
 
   dispose(): void {

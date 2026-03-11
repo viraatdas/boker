@@ -315,6 +315,7 @@ function maybeAdvanceStreet(table: TableState, options?: EngineOptions): HandRes
 
 export function createTable(input: CreateTableInput, options?: EngineOptions): TableState {
   const now = nowIso(options?.now);
+  const mode = input.mode ?? "play";
   return {
     tableId: createId(),
     tableCode: createTableCode(),
@@ -327,9 +328,11 @@ export function createTable(input: CreateTableInput, options?: EngineOptions): T
       bigBlind: input.config.bigBlind,
       minBuyIn: input.config.minBuyIn,
       maxBuyIn: input.config.maxBuyIn,
-      aiSeatCount: input.config.aiSeatCount,
+      aiSeatCount: mode === "crypto" ? 0 : input.config.aiSeatCount,
       actionTimeMs: DEFAULT_ACTION_MS
     },
+    mode,
+    cryptoConfig: mode === "crypto" ? input.cryptoConfig : undefined,
     status: "waiting",
     seats: Array.from({ length: 6 }, (_, seatIndex) => makeSeat(seatIndex)),
     observers: [],
@@ -361,7 +364,7 @@ export function addObserver(table: TableState, guest: { guestId: string; display
 
 export function seatPlayer(
   table: TableState,
-  input: { guestId: string | null; displayName: string; seatIndex: number; buyIn: number; isBot?: boolean },
+  input: { guestId: string | null; displayName: string; seatIndex: number; buyIn: number; isBot?: boolean; walletAddress?: string },
   options?: EngineOptions
 ): TableState {
   const next = clone(table);
@@ -371,6 +374,14 @@ export function seatPlayer(
   }
   if (input.buyIn < next.config.minBuyIn || input.buyIn > next.config.maxBuyIn) {
     throw new Error("Buy-in is outside table limits");
+  }
+  if (next.mode === "crypto") {
+    if (input.isBot) {
+      throw new Error("Bots are not allowed at crypto tables");
+    }
+    if (!input.walletAddress) {
+      throw new Error("Wallet address is required for crypto tables");
+    }
   }
   const now = nowIso(options?.now);
   const resolvedGuestId = input.isBot ? (input.guestId ?? createId()) : input.guestId;
@@ -385,7 +396,8 @@ export function seatPlayer(
     sitOut: false,
     seatIndex: input.seatIndex,
     joinedAt: now,
-    lastSeenAt: now
+    lastSeenAt: now,
+    walletAddress: input.walletAddress
   };
   next.updatedAt = now;
   if (options?.autoStart !== false) {
@@ -729,6 +741,8 @@ export function createTableSnapshot(table: TableState, viewerGuestId: string | n
     tableCode: table.tableCode,
     status: table.status,
     config: clone(table.config),
+    mode: table.mode,
+    cryptoConfig: table.cryptoConfig ? clone(table.cryptoConfig) : undefined,
     viewerGuestId,
     seats,
     board: clone(hand?.community ?? []),
@@ -750,6 +764,7 @@ export function publicTableSummary(table: TableState) {
     tableId: table.tableId,
     tableCode: table.tableCode,
     visibility: table.config.visibility,
+    mode: table.mode,
     smallBlind: table.config.smallBlind,
     bigBlind: table.config.bigBlind,
     minBuyIn: table.config.minBuyIn,

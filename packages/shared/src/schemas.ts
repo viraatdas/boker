@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { RANKS, SUITS } from "./types.js";
+import { TABLE_MODES, cryptoConfigSchema } from "./crypto-types.js";
 
 export const createGuestSchema = z.object({
   guestId: z.string().uuid().optional(),
@@ -16,7 +17,9 @@ export const createTableSchema = z.object({
     minBuyIn: z.number().int().positive(),
     maxBuyIn: z.number().int().positive(),
     aiSeatCount: z.number().int().min(0).max(5)
-  })
+  }),
+  mode: z.enum(TABLE_MODES).optional().default("play"),
+  cryptoConfig: cryptoConfigSchema.optional()
 });
 
 export const joinTableSchema = z.object({
@@ -28,7 +31,8 @@ export const seatPlayerSchema = z.object({
   guestId: z.string().uuid(),
   displayName: z.string().trim().min(2).max(24),
   seatIndex: z.number().int().min(0).max(5),
-  buyIn: z.number().int().positive()
+  buyIn: z.number().int().positive(),
+  walletAddress: z.string().min(32).max(44).optional()
 });
 
 export const leaveTableSchema = z.object({
@@ -75,6 +79,22 @@ export const wsClientMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("table.coachMode"),
     guestId: z.string().uuid(),
     enabled: z.boolean()
+  }),
+  z.object({
+    type: z.literal("table.connectWallet"),
+    guestId: z.string().uuid(),
+    walletAddress: z.string().min(32).max(44)
+  }),
+  z.object({
+    type: z.literal("table.deposit"),
+    guestId: z.string().uuid(),
+    txSignature: z.string().min(64).max(128),
+    expectedAmountLamports: z.number().int().positive()
+  }),
+  z.object({
+    type: z.literal("table.withdraw"),
+    guestId: z.string().uuid(),
+    toAddress: z.string().min(32).max(44)
   })
 ]);
 
@@ -103,6 +123,18 @@ export const wsServerMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("table.coachMode"),
     guestId: z.string(),
     enabled: z.boolean()
+  }),
+  z.object({
+    type: z.literal("table.depositConfirmed"),
+    guestId: z.string(),
+    amountLamports: z.number().int().positive(),
+    txSignature: z.string()
+  }),
+  z.object({
+    type: z.literal("table.withdrawalSent"),
+    guestId: z.string(),
+    amountLamports: z.number().int().positive(),
+    txSignature: z.string()
   }),
   z.object({
     type: z.literal("table.error"),

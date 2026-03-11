@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { CryptoConfig, TableMode } from "./crypto-types.js";
 
 export const SUITS = ["c", "d", "h", "s"] as const;
 export const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"] as const;
@@ -65,6 +66,7 @@ export interface TablePlayer {
   seatIndex: number;
   joinedAt: string;
   lastSeenAt: string;
+  walletAddress?: string;
 }
 
 export interface TableSeat {
@@ -133,6 +135,8 @@ export interface TableState {
   hostGuestId: string;
   lastDealerSeatIndex: number | null;
   config: TableConfig;
+  mode: TableMode;
+  cryptoConfig?: CryptoConfig;
   status: TableStatus;
   seats: TableSeat[];
   observers: GuestSession[];
@@ -158,6 +162,8 @@ export interface TableSnapshot {
   tableCode: string;
   status: TableStatus;
   config: TableConfig;
+  mode: TableMode;
+  cryptoConfig?: CryptoConfig;
   viewerGuestId: string | null;
   seats: VisibleSeatState[];
   board: Card[];
@@ -177,6 +183,7 @@ export interface PublicTableSummary {
   tableId: string;
   tableCode: string;
   visibility: TableVisibility;
+  mode: TableMode;
   smallBlind: number;
   bigBlind: number;
   minBuyIn: number;
@@ -194,6 +201,8 @@ export interface CreateTableInput {
   guestId: string;
   displayName: string;
   config: Pick<TableConfig, "visibility" | "smallBlind" | "bigBlind" | "minBuyIn" | "maxBuyIn" | "aiSeatCount">;
+  mode?: TableMode;
+  cryptoConfig?: CryptoConfig;
 }
 
 export interface JoinTableInput {
@@ -206,6 +215,7 @@ export interface SeatPlayerInput {
   displayName: string;
   seatIndex: number;
   buyIn: number;
+  walletAddress?: string;
 }
 
 export interface LeaveTableInput {

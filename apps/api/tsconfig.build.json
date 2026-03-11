@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "noEmit": false,
+    "paths": {
+      "@boker/shared": ["../../packages/shared/dist/index.d.ts"],
+      "@boker/shared/*": ["../../packages/shared/dist/*"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

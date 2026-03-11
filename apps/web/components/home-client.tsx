@@ -1,9 +1,13 @@
 "use client";
 
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { PublicTableSummary } from "@boker/shared";
+import type { PublicTableSummary, TableMode } from "@boker/shared";
+import { solToLamports } from "@boker/shared";
 import { createGuest, createTableRequest, guestStorage, listPublicTables, resolveTableCode } from "../lib/api";
+import { useWallet } from "../lib/wallet";
+import { WalletButton } from "./wallet-button";
+import { CryptoTableCreate } from "./crypto-table-create";
 
 interface CreateConfigState {
   visibility: "public" | "private";
@@ -32,6 +36,7 @@ const defaultConfig: CreateConfigState = {
 
 export function HomeClient() {
   const router = useRouter();
+  const wallet = useWallet();
   const [displayName, setDisplayName] = useState("");
   const [guestId, setGuestId] = useState<string | null>(null);
   const [publicTables, setPublicTables] = useState<PublicTableSummary[]>([]);
@@ -41,6 +46,8 @@ export function HomeClient() {
   const [showCustomize, setShowCustomize] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tableMode, setTableMode] = useState<TableMode>("play");
+  const [cryptoBuyInConfig, setCryptoBuyInConfig] = useState<{ buyInLamports: number; escrowAddress: string } | null>(null);
 
   useEffect(() => {
     const localGuest = guestStorage.read();
@@ -72,21 +79,57 @@ export function HomeClient() {
     setConfig((c) => ({ ...c, ...preset.config }));
   }
 
+  const handleCryptoConfigReady = useCallback((cfg: { buyInLamports: number; escrowAddress: string }) => {
+    setCryptoBuyInConfig(cfg);
+  }, []);
+
   async function handleCreateTable() {
     if (!canSubmit) {
       setError("Pick a display name first (min 2 characters).");
+      return;
+    }
+    if (tableMode === "crypto" && !wallet.connected) {
+      setError("Connect your wallet to create a crypto table.");
       return;
     }
     setLoading("create");
     setError(null);
     try {
       const session = await ensureGuest();
-      const response = await createTableRequest({
-        guestId: session.guestId,
-        displayName: session.displayName,
-        config,
-      });
-      startTransition(() => router.push(`/tables/${response.tableId}`));
+
+      if (tableMode === "crypto" && cryptoBuyInConfig) {
+        // Crypto table: derive blinds from buy-in (1/2% of buy-in as SB/BB)
+        const buyInLamports = cryptoBuyInConfig.buyInLamports;
+        const bb = Math.max(1, Math.floor(buyInLamports / 50));
+        const sb = Math.max(1, Math.floor(bb / 2));
+        const response = await createTableRequest({
+          guestId: session.guestId,
+          displayName: session.displayName,
+          config: {
+            visibility: config.visibility,
+            smallBlind: sb,
+            bigBlind: bb,
+            minBuyIn: buyInLamports,
+            maxBuyIn: buyInLamports * 2,
+            aiSeatCount: 0,
+          },
+          mode: "crypto",
+          cryptoConfig: {
+            currency: "SOL",
+            buyInLamports,
+            escrowAddress: cryptoBuyInConfig.escrowAddress,
+          },
+        });
+        startTransition(() => router.push(`/tables/${response.tableId}`));
+      } else {
+        const response = await createTableRequest({
+          guestId: session.guestId,
+          displayName: session.displayName,
+          config,
+          mode: "play",
+        });
+        startTransition(() => router.push(`/tables/${response.tableId}`));
+      }
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Could not create table");
     } finally {
@@ -143,110 +186,143 @@ export function HomeClient() {
               <p className="eyebrow">Create</p>
               <h2>New table</h2>
             </div>
-            <span className="pill">{config.smallBlind}/{config.bigBlind}</span>
+            <span className="pill">
+              {tableMode === "crypto" ? "SOL" : `${config.smallBlind}/${config.bigBlind}`}
+            </span>
           </header>
 
-          <div className="preset-row">
-            {PRESETS.map((preset, i) => (
-              <button
-                key={preset.label}
-                className={`preset-btn ${activePreset === i ? "active" : ""}`}
-                onClick={() => applyPreset(i)}
-              >
-                <span className="preset-label">{preset.label}</span>
-                <span className="preset-detail">{preset.detail}</span>
-              </button>
-            ))}
+          {/* Mode toggle */}
+          <div className="mode-toggle-row">
+            <button
+              className={`mode-toggle-btn ${tableMode === "play" ? "active" : ""}`}
+              onClick={() => setTableMode("play")}
+            >
+              Play Money
+            </button>
+            <button
+              className={`mode-toggle-btn ${tableMode === "crypto" ? "active" : ""}`}
+              onClick={() => setTableMode("crypto")}
+            >
+              Crypto (SOL)
+            </button>
           </div>
 
-          <label style={{ marginBottom: "0.5rem" }}>
-            AI players
-            <div className="ai-seat-grid">
-              {[0, 1, 2, 3, 4, 5].map((n) => (
-                <button
-                  key={n}
-                  className={`ai-seat-chip ${config.aiSeatCount === n ? "active" : ""}`}
-                  onClick={() => setConfig((c) => ({ ...c, aiSeatCount: n }))}
-                  title={`${n} AI player${n !== 1 ? "s" : ""}`}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          </label>
+          {tableMode === "crypto" ? (
+            <CryptoTableCreate onConfigReady={handleCryptoConfigReady} disabled={loading === "create"} />
+          ) : (
+            <>
+              <div className="preset-row">
+                {PRESETS.map((preset, i) => (
+                  <button
+                    key={preset.label}
+                    className={`preset-btn ${activePreset === i ? "active" : ""}`}
+                    onClick={() => applyPreset(i)}
+                  >
+                    <span className="preset-label">{preset.label}</span>
+                    <span className="preset-detail">{preset.detail}</span>
+                  </button>
+                ))}
+              </div>
 
-          <button
-            className="text-button"
-            style={{ marginBottom: showCustomize ? "0.5rem" : "0.75rem" }}
-            onClick={() => setShowCustomize((v) => !v)}
-          >
-            {showCustomize ? "Hide options" : "Customize"}
-          </button>
-
-          {showCustomize && (
-            <div className="form-grid">
-              <label>
-                Visibility
-                <select
-                  className="text-input"
-                  value={config.visibility}
-                  onChange={(e) => setConfig((c) => ({ ...c, visibility: e.target.value as "public" | "private" }))}
-                >
-                  <option value="private">Private (invite link)</option>
-                  <option value="public">Public (lobby)</option>
-                </select>
-              </label>
-              <label>
-                Blinds
-                <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
-                  <input
-                    className="text-input"
-                    type="number"
-                    min={1}
-                    value={config.smallBlind}
-                    onChange={(e) => {
-                      const sb = Number(e.target.value);
-                      setConfig((c) => ({ ...c, smallBlind: sb, bigBlind: Math.max(sb * 2, c.bigBlind) }));
-                      setActivePreset(-1);
-                    }}
-                    style={{ flex: 1 }}
-                  />
-                  <span style={{ color: "var(--muted)" }}>/</span>
-                  <input
-                    className="text-input"
-                    type="number"
-                    min={2}
-                    value={config.bigBlind}
-                    onChange={(e) => { setConfig((c) => ({ ...c, bigBlind: Number(e.target.value) })); setActivePreset(-1); }}
-                    style={{ flex: 1 }}
-                  />
+              <label style={{ marginBottom: "0.5rem" }}>
+                AI players
+                <div className="ai-seat-grid">
+                  {[0, 1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      className={`ai-seat-chip ${config.aiSeatCount === n ? "active" : ""}`}
+                      onClick={() => setConfig((c) => ({ ...c, aiSeatCount: n }))}
+                      title={`${n} AI player${n !== 1 ? "s" : ""}`}
+                    >
+                      {n}
+                    </button>
+                  ))}
                 </div>
               </label>
-              <label>
-                Min buy-in
-                <input
-                  className="text-input"
-                  type="number"
-                  min={10}
-                  value={config.minBuyIn}
-                  onChange={(e) => { setConfig((c) => ({ ...c, minBuyIn: Number(e.target.value) })); setActivePreset(-1); }}
-                />
-              </label>
-              <label>
-                Max buy-in
-                <input
-                  className="text-input"
-                  type="number"
-                  min={config.minBuyIn}
-                  value={config.maxBuyIn}
-                  onChange={(e) => { setConfig((c) => ({ ...c, maxBuyIn: Number(e.target.value) })); setActivePreset(-1); }}
-                />
-              </label>
-            </div>
+            </>
           )}
 
-          <button className="primary-button" style={{ width: "100%" }} onClick={() => void handleCreateTable()} disabled={loading === "create" || !canSubmit}>
-            {loading === "create" ? "Creating..." : "Create table"}
+          {tableMode === "play" && (
+            <>
+              <button
+                className="text-button"
+                style={{ marginBottom: showCustomize ? "0.5rem" : "0.75rem" }}
+                onClick={() => setShowCustomize((v) => !v)}
+              >
+                {showCustomize ? "Hide options" : "Customize"}
+              </button>
+
+              {showCustomize && (
+                <div className="form-grid">
+                  <label>
+                    Visibility
+                    <select
+                      className="text-input"
+                      value={config.visibility}
+                      onChange={(e) => setConfig((c) => ({ ...c, visibility: e.target.value as "public" | "private" }))}
+                    >
+                      <option value="private">Private (invite link)</option>
+                      <option value="public">Public (lobby)</option>
+                    </select>
+                  </label>
+                  <label>
+                    Blinds
+                    <div style={{ display: "flex", gap: "0.35rem", alignItems: "center" }}>
+                      <input
+                        className="text-input"
+                        type="number"
+                        min={1}
+                        value={config.smallBlind}
+                        onChange={(e) => {
+                          const sb = Number(e.target.value);
+                          setConfig((c) => ({ ...c, smallBlind: sb, bigBlind: Math.max(sb * 2, c.bigBlind) }));
+                          setActivePreset(-1);
+                        }}
+                        style={{ flex: 1 }}
+                      />
+                      <span style={{ color: "var(--muted)" }}>/</span>
+                      <input
+                        className="text-input"
+                        type="number"
+                        min={2}
+                        value={config.bigBlind}
+                        onChange={(e) => { setConfig((c) => ({ ...c, bigBlind: Number(e.target.value) })); setActivePreset(-1); }}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                  </label>
+                  <label>
+                    Min buy-in
+                    <input
+                      className="text-input"
+                      type="number"
+                      min={10}
+                      value={config.minBuyIn}
+                      onChange={(e) => { setConfig((c) => ({ ...c, minBuyIn: Number(e.target.value) })); setActivePreset(-1); }}
+                    />
+                  </label>
+                  <label>
+                    Max buy-in
+                    <input
+                      className="text-input"
+                      type="number"
+                      min={config.minBuyIn}
+                      value={config.maxBuyIn}
+                      onChange={(e) => { setConfig((c) => ({ ...c, maxBuyIn: Number(e.target.value) })); setActivePreset(-1); }}
+                    />
+                  </label>
+                </div>
+              )}
+            </>
+          )}
+
+          <button
+            className="primary-button"
+            style={{ width: "100%" }}
+            onClick={() => void handleCreateTable()}
+            disabled={loading === "create" || !canSubmit || (tableMode === "crypto" && !wallet.connected)}
+          >
+            {loading === "create" ? "Creating..." : tableMode === "crypto" ? "Create crypto table" : "Create table"}
           </button>
         </article>
 
@@ -292,6 +368,7 @@ export function HomeClient() {
                   <div>
                     <strong>{table.tableCode}</strong>
                     <span>{table.smallBlind}/{table.bigBlind} blinds</span>
+                    {table.mode === "crypto" && <span className="pill crypto-pill">SOL</span>}
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <span>{table.playerCount}/6 seated</span>
