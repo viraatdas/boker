@@ -5,6 +5,7 @@ import { useWallet } from "../lib/wallet";
 import { WalletButton } from "./wallet-button";
 import { getEscrowInfo } from "../lib/api";
 import { formatSol, solToLamports } from "@boker/shared";
+import { fetchSolPrice } from "../lib/sol-price";
 
 interface CryptoTableCreateProps {
   onConfigReady: (config: {
@@ -27,6 +28,11 @@ export function CryptoTableCreate({ onConfigReady, disabled }: CryptoTableCreate
   const [cryptoEnabled, setCryptoEnabled] = useState(false);
   const [buyInSol, setBuyInSol] = useState(0.05);
   const [activePreset, setActivePreset] = useState(1);
+  const [solPrice, setSolPrice] = useState<number>(0);
+
+  useEffect(() => {
+    void fetchSolPrice().then(setSolPrice);
+  }, []);
 
   useEffect(() => {
     void getEscrowInfo().then((info) => {
@@ -107,7 +113,7 @@ export function CryptoTableCreate({ onConfigReady, disabled }: CryptoTableCreate
 
           <div className="crypto-info-row">
             <span>Buy-in: {formatSol(solToLamports(buyInSol))}</span>
-            <span>Blinds adapt to buy-in</span>
+            {solPrice > 0 && <span>~${(buyInSol * solPrice).toFixed(2)} USD</span>}
           </div>
 
           <p className="identity-hint">

@@ -9,6 +9,7 @@ import { playCardDeal, playCardFlip, playCheck, playChipBet, playClick, playFold
 import { generateAdvice, type CoachAdvice } from "../lib/coach";
 import { useWallet } from "../lib/wallet";
 import { WalletButton } from "./wallet-button";
+import { fetchSolPrice, lamportsToUsd } from "../lib/sol-price";
 
 interface TableClientProps {
   tableId: string;
@@ -77,6 +78,8 @@ export function TableClient({ tableId }: TableClientProps) {
   const [botPersonalities, setBotPersonalities] = useState<Record<string, string>>({});
   const [depositPending, setDepositPending] = useState(false);
   const [withdrawPending, setWithdrawPending] = useState(false);
+  const [displayCurrency, setDisplayCurrency] = useState<"SOL" | "USD">("SOL");
+  const [solPrice, setSolPrice] = useState<number>(0);
   const socketRef = useRef<WebSocket | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const prevPhaseRef = useRef<string | null>(null);
@@ -91,6 +94,16 @@ export function TableClient({ tableId }: TableClientProps) {
       setDisplayName(localGuest.displayName);
     }
   }, []);
+
+  // Fetch SOL/USD price for crypto tables
+  useEffect(() => {
+    if (!snapshot || snapshot.mode !== "crypto") return;
+    void fetchSolPrice().then(setSolPrice);
+    const interval = setInterval(() => {
+      void fetchSolPrice().then(setSolPrice);
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [snapshot?.mode]);
 
   useEffect(() => {
     if (!guestId || !displayName) return;
@@ -253,8 +266,9 @@ export function TableClient({ tableId }: TableClientProps) {
   const isCrypto = snapshot?.mode === "crypto";
 
   function formatAmount(amount: number): string {
-    if (isCrypto) return formatSol(amount);
-    return String(amount);
+    if (!isCrypto) return String(amount);
+    if (displayCurrency === "USD" && solPrice > 0) return lamportsToUsd(amount, solPrice);
+    return formatSol(amount);
   }
 
   async function handleDeposit() {
@@ -438,7 +452,17 @@ export function TableClient({ tableId }: TableClientProps) {
           </h1>
         </div>
         <div className="header-actions">
-          {isCrypto && <span className="pill crypto-pill">SOL</span>}
+          {isCrypto && (
+            <button
+              className={`currency-toggle ${displayCurrency === "USD" ? "showing-usd" : ""}`}
+              onClick={() => setDisplayCurrency((c) => c === "SOL" ? "USD" : "SOL")}
+              title={`Showing ${displayCurrency}. Click to switch.`}
+            >
+              <span className={displayCurrency === "SOL" ? "currency-active" : "currency-inactive"}>SOL</span>
+              <span className="currency-divider">/</span>
+              <span className={displayCurrency === "USD" ? "currency-active" : "currency-inactive"}>USD</span>
+            </button>
+          )}
           {isCrypto && <WalletButton />}
           <span className="pill">{snapshot.config.visibility}</span>
           <button
@@ -674,6 +698,12 @@ export function TableClient({ tableId }: TableClientProps) {
                   <span>Stack</span>
                   <strong>{formatAmount(viewerSeat.player?.stack ?? 0)}</strong>
                 </div>
+                {solPrice > 0 && (
+                  <div className="crypto-balance-row crypto-secondary">
+                    <span>1 SOL</span>
+                    <span>${solPrice.toFixed(2)}</span>
+                  </div>
+                )}
                 {wallet.connected && (
                   <>
                     <button

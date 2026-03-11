@@ -1574,3 +1574,43 @@ label {
   font-size: 0.9rem;
   padding: 0.25rem 0;
 }
+
+.crypto-balance-row.crypto-secondary {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* Currency toggle (SOL/USD) */
+.currency-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid rgba(255 255 255 / 0.12);
+  border-radius: 6px;
+  background: rgba(255 255 255 / 0.06);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.currency-toggle:hover {
+  border-color: rgba(255 255 255 / 0.25);
+}
+
+.currency-active {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.currency-inactive {
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+.currency-divider {
+  color: var(--muted);
+  opacity: 0.4;
+  margin: 0 0.15rem;
+}
